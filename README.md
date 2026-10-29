@@ -70,11 +70,36 @@ php artisan make:filament-user
 É aqui que os recursos dos gateways de pagamento (clientes, cobranças, assinaturas,
 webhooks e configurações) serão gerenciados conforme o projeto evoluir.
 
+### CRUD de ONGs (exemplo)
+
+Como primeiro recurso de exemplo do painel, há um CRUD simples de **ONGs**
+(organizações), acessível em **`/admin/ongs`**.
+
+- **Model:** `App\Models\Ong` (tabela `ongs`)
+- **Campos:** `name`, `email`, `phone`, `city`, `description`, `active` (boolean)
+- **Resource Filament:** `App\Filament\Resources\Ongs\OngResource`
+  - Formulário de criação/edição com validação (`name` obrigatório, `email` validado)
+  - Tabela com busca, ordenação, filtro por "Ativo" e exclusão em massa
+
+Rotas registradas:
+
+```
+GET  /admin/ongs                 # listagem
+GET  /admin/ongs/create          # criação
+GET  /admin/ongs/{record}/edit   # edição
+```
+
+> Observação: o model `User` implementa `FilamentUser` (`canAccessPanel()`),
+> deixando explícito quem pode acessar o painel em qualquer ambiente.
+
 ## Rodar os testes
 
 ```bash
 php artisan test
 ```
+
+Os testes cobrem, entre outros, o acesso ao CRUD de ONGs (redirecionamento de
+visitante não autenticado, acesso do admin às telas e persistência do model).
 
 ## Estrutura relevante
 
