@@ -18,7 +18,9 @@ class OngResource extends Resource
 {
     protected static ?string $model = Ong::class;
 
-    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedRectangleStack;
+    protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedBuildingOffice2;
+
+    protected static string|null|\UnitEnum $navigationGroup = 'Cadastros';
 
     protected static ?string $recordTitleAttribute = 'name';
 
