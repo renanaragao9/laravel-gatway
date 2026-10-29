@@ -17,6 +17,8 @@ return new class extends Migration
             $table->string('period', 7)->nullable();
             $table->string('payer_name')->nullable();
             $table->string('payer_email')->nullable();
+            $table->text('pix_payload')->nullable();
+            $table->text('pix_qr_base64')->nullable();
             $table->timestamp('paid_at')->nullable();
             $table->unsignedBigInteger('amount_cents');
             $table->unsignedBigInteger('fee_cents')->default(0);

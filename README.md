@@ -1,9 +1,9 @@
 # 01 - Laravel Gateway
 
-Projeto base da coleção de 20 mini projetos, construído sobre **Laravel 13** com um
-painel administrativo **Filament**. A aplicação servirá de base para integração com
-**gateways de pagamento** (Asaas, Mercado Pago, etc.), gerenciando clientes,
-cobranças, assinaturas e configurações pelo painel admin.
+Gateway de pagamento **centralizado** que recebe doações para ONGs via **Pix** e, no
+fechamento mensal, **repassa** o valor líquido a cada ONG (descontando a taxa da
+plataforma). Construído em **Laravel 13** + **Filament 5**, com arquitetura de gateway
+**plugável** (começando pelo **Asaas**).
 
 ## Stack
 
@@ -11,86 +11,131 @@ cobranças, assinaturas e configurações pelo painel admin.
 - **PHP** 8.4
 - **Filament** 5.x (painel administrativo em `/admin`)
 - **SQLite** (banco padrão, zero configuração)
-- **Vite** + Tailwind (assets front-end do starter do Laravel)
+- **Asaas** como gateway inicial (Pix, sandbox)
 
-## O que foi configurado
+## Fluxo
 
-- Nome da aplicação: `APP_NAME="Laravel Gateway"`
-- Localização: `APP_LOCALE=pt_BR` (fallback `en`) e `APP_FAKER_LOCALE=pt_BR`
-- Fuso horário: `APP_TIMEZONE=America/Sao_Paulo` (lido de env em `config/app.php`)
-- Banco de dados SQLite em `database/database.sqlite`
-- `APP_KEY` gerada e migrations executadas
-- Painel admin Filament instalado em `/admin` (login habilitado)
+```
+Doador (anônimo)
+   │  GET /doar/{ong}  → preenche valor
+   ▼
+Checkout ── cria cobrança Pix no gateway ──► Payment (pending) + QR Code
+   │
+   ▼  (doador paga)
+Webhook POST /webhooks/asaas
+   │  valida assinatura + idempotência
+   ▼
+Payment (paid) + taxa aplicada ──► LedgerEntry (crédito p/ a ONG)
+   │
+   ▼  (cron, todo dia 1º)
+payouts:close-month  → agrupa pagamentos do período em Payout (pending)
+payouts:dispatch     → transferência via gateway ──► Payout (paid) + LedgerEntry (débito)
+```
+
+Valores monetários são sempre armazenados em **centavos (inteiro)**.
+
+## Domínio (models)
+
+| Model | Papel |
+|-------|-------|
+| `Ong` | Beneficiário; inclui dados de repasse (`document`, `pix_key`, dados bancários) |
+| `Payment` | Pagamento recebido (bruto/taxa/líquido, status, período, dados Pix) |
+| `GatewayAccount` | Credenciais do gateway (`provider`, `mode`, `credentials` **criptografadas**) |
+| `Payout` | Repasse mensal por ONG |
+| `PayoutItem` | Liga `Payment`s a um `Payout` |
+| `WebhookEvent` | Auditoria/idempotência de webhooks |
+| `LedgerEntry` | Razão por ONG (crédito na entrada, débito no repasse) |
+
+## Arquitetura de gateway (plugável)
+
+Contrato único em `app/Services/Payments/`:
+
+```
+Contracts/PaymentGateway.php     # createPixCharge, verifyWebhookSignature, parseWebhook, createTransfer
+Data/                            # DTOs: ChargeRequest, ChargeResult, WebhookResult, TransferResult
+Enums/                           # PaymentMethod, PaymentStatus
+Drivers/AsaasGateway.php         # implementação Asaas
+PaymentGatewayManager.php        # resolve o driver da GatewayAccount ativa
+PaymentProcessor.php             # cria cobrança e confirma pagamento (+ LedgerEntry)
+PayoutService.php                # fechamento mensal e repasse
+FeeCalculator.php                # taxa configurável (percentual + fixo)
+```
+
+**Trocar de gateway** = criar uma classe `XGateway implements PaymentGateway` e
+adicionar um `case` no `PaymentGatewayManager`. Nada mais muda.
+
+## Painel administrativo (Filament)
+
+Acesse **http://localhost:8000/admin**. Navegação:
+
+- **Dashboard** — widgets: totais (arrecadado, taxas, repassado, pendentes),
+  gráfico de arrecadação por mês e tabela de repasses pendentes.
+- **Cadastros → ONGs** (`/admin/ongs`) — CRUD com dados de repasse.
+- **Gateway → Pagamentos** (`/admin/payments`) — monitoramento (somente leitura).
+- **Gateway → Repasses** (`/admin/payouts`) — monitoramento (somente leitura).
+- **Gateway → Contas de Gateway** (`/admin/gateway-accounts`) — credenciais do provedor.
+
+> O model `User` implementa `FilamentUser` (`canAccessPanel()`).
+
+## Checkout público
+
+```
+GET  /doar/{ong}                        # formulário de doação
+POST /doar/{ong}                        # gera a cobrança Pix
+GET  /doar/{ong}/pagamento/{payment}    # exibe QR Code + copia-e-cola
+```
+
+## Webhook
+
+```
+POST /webhooks/{provider}   # ex.: /webhooks/asaas  (isento de CSRF)
+```
+
+Valida a assinatura do provedor, é **idempotente** (por `provider` + `external_id`),
+marca o `Payment` como pago, aplica a taxa e grava o `LedgerEntry` de crédito.
+
+## Repasse mensal (cron)
+
+```bash
+php artisan payouts:close-month [YYYY-MM]   # agrupa pagamentos do período em repasses
+php artisan payouts:dispatch                # processa os repasses pendentes
+```
+
+Agendados em `routes/console.php` para rodar **todo dia 1º** (03:00 e 03:30).
+Em `mode=sandbox`, a transferência é **simulada**; em `production`, usa a API real.
+
+Para o agendador rodar em produção:
+
+```
+* * * * * cd /caminho/projeto && php artisan schedule:run >> /dev/null 2>&1
+```
 
 ## Requisitos
 
 - PHP >= 8.2
 - Composer 2.x
-- Node.js 18+ e npm (para compilar os assets)
+- Node.js 18+ e npm
 
 ## Como rodar
 
 ```bash
-# 1. Instalar dependências PHP
 composer install
-
-# 2. Copiar o arquivo de ambiente (se ainda não existir .env)
 cp .env.example .env
-
-# 3. Gerar a chave da aplicação
 php artisan key:generate
-
-# 4. Criar o banco SQLite (se não existir) e rodar as migrations
 touch database/database.sqlite
-php artisan migrate
-
-# 5. Instalar e compilar os assets front-end
-npm install
-npm run build        # ou: npm run dev (modo watch)
-
-# 6. Subir o servidor de desenvolvimento
+php artisan migrate --seed    # cria o admin (admin@example.com)
+npm install && npm run build
 php artisan serve
 ```
 
-Acesse: http://localhost:8000
+## Configuração do gateway
 
-## Painel administrativo (Filament)
-
-O painel fica em **http://localhost:8000/admin**.
-
-Para criar um usuário de acesso ao painel:
-
-```bash
-php artisan make:filament-user
-```
-
-> Em desenvolvimento, foi criado um usuário `admin@example.com`. **Troque a senha
-> antes de usar em qualquer ambiente real.**
-
-É aqui que os recursos dos gateways de pagamento (clientes, cobranças, assinaturas,
-webhooks e configurações) serão gerenciados conforme o projeto evoluir.
-
-### CRUD de ONGs (exemplo)
-
-Como primeiro recurso de exemplo do painel, há um CRUD simples de **ONGs**
-(organizações), acessível em **`/admin/ongs`**.
-
-- **Model:** `App\Models\Ong` (tabela `ongs`)
-- **Campos:** `name`, `email`, `phone`, `city`, `description`, `active` (boolean)
-- **Resource Filament:** `App\Filament\Resources\Ongs\OngResource`
-  - Formulário de criação/edição com validação (`name` obrigatório, `email` validado)
-  - Tabela com busca, ordenação, filtro por "Ativo" e exclusão em massa
-
-Rotas registradas:
-
-```
-GET  /admin/ongs                 # listagem
-GET  /admin/ongs/create          # criação
-GET  /admin/ongs/{record}/edit   # edição
-```
-
-> Observação: o model `User` implementa `FilamentUser` (`canAccessPanel()`),
-> deixando explícito quem pode acessar o painel em qualquer ambiente.
+1. Em `/admin/gateway-accounts`, cadastre a conta: provedor `asaas`, ambiente
+   `sandbox`, credenciais `api_key` e `webhook_token`, e marque como **ativa**.
+2. No painel do Asaas, configure o webhook apontando para
+   `https://SEU_DOMINIO/webhooks/asaas` com o mesmo `webhook_token`.
+3. A taxa da plataforma é configurável via `.env`:
+   `PAYMENTS_FEE_PERCENT` (padrão 5) e `PAYMENTS_FEE_FIXED_CENTS` (padrão 0).
 
 ## Rodar os testes
 
@@ -98,36 +143,21 @@ GET  /admin/ongs/{record}/edit   # edição
 php artisan test
 ```
 
-Os testes cobrem, entre outros, o acesso ao CRUD de ONGs (redirecionamento de
-visitante não autenticado, acesso do admin às telas e persistência do model).
-
-## Estrutura relevante
-
-```
-01-laravel-starter/
-├── app/                # Código da aplicação (Models, Http, Providers)
-├── config/             # Configurações (app.php ajustado p/ timezone via env)
-├── database/
-│   ├── database.sqlite # Banco SQLite
-│   └── migrations/     # Migrations
-├── routes/             # web.php, console.php
-├── tests/              # Testes (Feature e Unit)
-├── .env                # Ambiente local (não versionado)
-└── .env.example        # Modelo de ambiente (versionado)
-```
+A suíte cobre: CRUD de ONGs, domínio/relacionamentos, driver Asaas (com `Http::fake`),
+checkout, webhook (assinatura + idempotência), fechamento e repasse (idempotentes),
+e carregamento do dashboard.
 
 ## Decisões técnicas
 
-- **SQLite** foi escolhido como banco padrão por não exigir servidor externo,
-  deixando o projeto executável com um único `git clone`. Para trocar por
-  MySQL/PostgreSQL, basta ajustar as variáveis `DB_*` no `.env`.
-- **Localização pt_BR** e **timezone de São Paulo** desde o início para refletir
-  um cenário de aplicação brasileira.
+- **Valores em centavos** para evitar erro de arredondamento.
+- **Credenciais criptografadas** (`encrypted:array`), nunca versionadas.
+- **Idempotência** em webhook, fechamento e repasse; operações críticas em transação.
+- **SQLite** para execução imediata; trocar por MySQL/PostgreSQL só ajustando `DB_*`.
+- Aspectos legais/regulatórios de intermediação financeira (KYC/AML, PCI) estão
+  **fora de escopo** deste projeto de portfólio.
 
 ## Verificação
 
-- `php artisan test` → 2 testes passando.
-- Servidor responde HTTP 200 na home com o título "Laravel Gateway".
-- Painel admin: `/admin/login` responde HTTP 200 e `/admin` redireciona para o login
-  (autenticação ativa).
-# laravel-gatway
+- `php artisan test` → **34 testes passando (96 assertions)**.
+- `php artisan schedule:list` → comandos de fechamento e repasse agendados (dia 1º).
+- Painel `/admin` carrega com os widgets do dashboard.

@@ -19,6 +19,8 @@ class Payment extends Model
         'period',
         'payer_name',
         'payer_email',
+        'pix_payload',
+        'pix_qr_base64',
         'payout_id',
         'paid_at',
     ];
