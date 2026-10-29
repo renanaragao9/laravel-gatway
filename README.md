@@ -1,4 +1,4 @@
-# 01 - Laravel Starter
+# 01 - Laravel Gateway
 
 Projeto base da coleção de 20 mini projetos, construído sobre **Laravel 13** com um
 painel administrativo **Filament**. A aplicação servirá de base para integração com
@@ -15,7 +15,7 @@ cobranças, assinaturas e configurações pelo painel admin.
 
 ## O que foi configurado
 
-- Nome da aplicação: `APP_NAME="Laravel Starter"`
+- Nome da aplicação: `APP_NAME="Laravel Gateway"`
 - Localização: `APP_LOCALE=pt_BR` (fallback `en`) e `APP_FAKER_LOCALE=pt_BR`
 - Fuso horário: `APP_TIMEZONE=America/Sao_Paulo` (lido de env em `config/app.php`)
 - Banco de dados SQLite em `database/database.sqlite`
@@ -102,7 +102,7 @@ php artisan test
 ## Verificação
 
 - `php artisan test` → 2 testes passando.
-- Servidor responde HTTP 200 na home com o título "Laravel Starter".
+- Servidor responde HTTP 200 na home com o título "Laravel Gateway".
 - Painel admin: `/admin/login` responde HTTP 200 e `/admin` redireciona para o login
   (autenticação ativa).
 # laravel-gatway
